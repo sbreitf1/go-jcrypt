@@ -14,13 +14,13 @@ import (
 )
 
 type data struct {
-	UserName string `json:"username"`
-	Password string `json:"password" jcrypt:"aes"`
+    UserName string `json:"username"`
+    Password string `json:"password" jcrypt:"aes"`
 }
 
 func main() {
-	raw, _ := jcrypt.Marshal(d, &jcrypt.Options{
-		GetKeyHandler: jcrypt.StaticKey([]byte("secret")),
+    raw, _ := jcrypt.Marshal(d, &jcrypt.Options{
+        GetKeyHandler: jcrypt.StaticKey([]byte("secret")),
     })
 
     fmt.Println(string(raw))
@@ -49,14 +49,14 @@ Obtaining the plaintext value from an encrypted JSON representation is also comp
 import "github.com/sbreitf1/go-jcrypt"
 
 type data struct {
-	UserName string `json:"username"`
-	Password string `json:"password" jcrypt:"aes"`
+    UserName string `json:"username"`
+    Password string `json:"password" jcrypt:"aes"`
 }
 
 func main() {
     var d data
-	jcrypt.Unmarshal(jsonInputData, &d, &jcrypt.Options{
-		GetKeyHandler: jcrypt.StaticKey([]byte("secret")),
+    jcrypt.Unmarshal(jsonInputData, &d, &jcrypt.Options{
+        GetKeyHandler: jcrypt.StaticKey([]byte("secret")),
     })
 }
 ```
