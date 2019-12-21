@@ -14,16 +14,17 @@ type data struct {
 }
 
 func main() {
-	d := data{"obi wan", "deathstar"}
-	raw, err := jcrypt.Marshal(d, nil)
+	raw, err := ioutil.ReadFile("data_mode_aes.json")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	fmt.Println(string(raw))
 
-	if err := ioutil.WriteFile("data.json", raw, os.ModePerm); err != nil {
+	var d data
+	if err := jcrypt.Unmarshal(raw, &d, nil); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
+
+	fmt.Println(d)
 }
