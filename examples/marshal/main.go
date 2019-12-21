@@ -15,7 +15,9 @@ type data struct {
 
 func main() {
 	d := data{"obi wan", "deathstar"}
-	raw, err := jcrypt.Marshal(d, nil)
+	raw, err := jcrypt.Marshal(d, &jcrypt.Options{
+		GetKeyHandler: jcrypt.StaticKey([]byte("secret")),
+	})
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
