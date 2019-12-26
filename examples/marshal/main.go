@@ -11,10 +11,11 @@ import (
 type data struct {
 	UserName string `json:"username"`
 	Password string `json:"password" jcrypt:"aes"`
+	Groups   []string
 }
 
 func main() {
-	d := data{"obi wan", "deathstar"}
+	d := data{"obi wan", "deathstar", []string{"jedi", "jedi-master"}}
 	raw, err := jcrypt.Marshal(d, &jcrypt.Options{
 		GetKeyHandler: jcrypt.StaticKey([]byte("secret")),
 	})

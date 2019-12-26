@@ -7,8 +7,8 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 
 	"golang.org/x/crypto/pbkdf2"
@@ -86,40 +86,40 @@ type cryptBlock struct {
 	Data       []byte `json:"-"`
 }
 
-func newCryptBlock(mode string, data []byte) cryptBlock {
+func newCryptBlock(mode string, data []byte) *cryptBlock {
 	dataBase64 := base64Encoding.EncodeToString(data)
-	return cryptBlock{mode, dataBase64, data}
+	return &cryptBlock{mode, dataBase64, data}
 }
 
-func parseCryptBlock(v interface{}) (cryptBlock, error) {
+func parseCryptBlock(v interface{}) (*cryptBlock, error) {
 	block, ok := v.(map[string]interface{})
 	if !ok {
-		return cryptBlock{}, fmt.Errorf("unexpected content %T for encrypted value", v)
+		return nil, fmt.Errorf("unexpected content %T for encrypted value", v)
 	}
 
 	rawMode, ok := block["mode"]
 	if !ok {
-		return cryptBlock{}, fmt.Errorf("encrypted block without mode")
+		return nil, fmt.Errorf("encrypted block without mode")
 	}
 	mode, ok := rawMode.(string)
 	if !ok {
-		return cryptBlock{}, fmt.Errorf("expected mode of encrypted block to be of type string")
+		return nil, fmt.Errorf("expected mode of encrypted block to be of type string")
 	}
 
 	rawData, ok := block["data"]
 	if !ok {
-		return cryptBlock{}, fmt.Errorf("encrypted block without data")
+		return nil, fmt.Errorf("encrypted block without data")
 	}
 	strData, ok := rawData.(string)
 	if !ok {
-		return cryptBlock{}, fmt.Errorf("expected data of encrypted block to be of type string")
+		return nil, fmt.Errorf("expected data of encrypted block to be of type string")
 	}
 	data, err := base64Encoding.DecodeString(strData)
 	if err != nil {
-		return cryptBlock{}, fmt.Errorf("expected data of encrypted block to be base64 encoded")
+		return nil, fmt.Errorf("expected data of encrypted block to be base64 encoded")
 	}
 
-	return cryptBlock{mode, strData, data}, nil
+	return &cryptBlock{mode, strData, data}, nil
 }
 
 // Marshal returns a json representation of v and replaces all jcrypt-annotated fields with encrypted values.
@@ -149,11 +149,9 @@ func marshalCryptHandler(src srcValue, context *cryptContext) (interface{}, bool
 }
 
 func marshalCryptAES(src srcValue, context *cryptContext) (interface{}, error) {
-	//TODO encrypt json representation of arbitrary type
-
-	str, ok := src.Interface().(string)
-	if !ok {
-		return nil, fmt.Errorf("encrypted values must be of type string")
+	data, err := json.Marshal(src.Interface())
+	if err != nil {
+		return nil, err
 	}
 
 	key, err := context.GetKey()
@@ -161,7 +159,7 @@ func marshalCryptAES(src srcValue, context *cryptContext) (interface{}, error) {
 		return nil, err
 	}
 
-	encData, err := encryptAES([]byte(str), key, context.Options.Salt)
+	encData, err := encryptAES(data, key, context.Options.Salt)
 	if err != nil {
 		return nil, err
 	}
@@ -192,11 +190,7 @@ func unmarshalCryptHandler(src interface{}, dst dstValue, context *cryptContext)
 }
 
 func unmarshalCrypt(src interface{}, dst dstValue, context *cryptContext) error {
-	//TODO decrypt json representation of arbitrary type
-
-	if dst.Kind() != reflect.String {
-		return fmt.Errorf("encrypted values must be of type string")
-	}
+	//TODO allow raw-mode for other datatypes
 	val, ok := src.(string)
 	if ok {
 		// raw value present
@@ -209,26 +203,38 @@ func unmarshalCrypt(src interface{}, dst dstValue, context *cryptContext) error 
 		return err
 	}
 
+	data, err := getRawDataFromCryptBlock(block, context)
+	if err != nil {
+		return err
+	}
+
+	var srcValue interface{}
+	if err := json.Unmarshal(data, &srcValue); err != nil {
+		return fmt.Errorf("failed to decode decrypted data: %v", err)
+	}
+
+	return jsonUnmarshalValue(srcValue, dst, nil)
+}
+
+func getRawDataFromCryptBlock(block *cryptBlock, context *cryptContext) ([]byte, error) {
 	switch block.Mode {
 	case "none":
-		dst.Assign(string(block.Data))
-		return nil
+		return block.Data, nil
 
 	case "aes":
 		key, err := context.GetKey()
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		raw, err := decryptAES(block.Data, key, context.Options.Salt)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		dst.Assign(string(raw))
-		return nil
+		return raw, nil
 
 	default:
-		return fmt.Errorf("unknown encryption mode %q", block.Mode)
+		return nil, fmt.Errorf("unknown encryption mode %q", block.Mode)
 	}
 }
 

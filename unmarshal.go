@@ -13,25 +13,44 @@ type dstValue struct {
 	StructField *reflect.StructField
 }
 
-func (dst dstValue) elem() dstValue {
+func (dst dstValue) Elem() dstValue {
 	return dstValue{dst.Type.Elem(), dst.Value.Elem(), dst.StructField}
 }
 
+func (dst dstValue) Index(i int) dstValue {
+	v := dst.Value.Index(i)
+	return dstValue{v.Type(), v, nil}
+}
+
 func (dst dstValue) Kind() reflect.Kind {
-	t := dst.Type
-	for t.Kind() == reflect.Ptr {
-		t = t.Elem()
-	}
-	return t.Kind()
+	return dst.Type.Kind()
 }
 
 func (dst dstValue) Assign(val interface{}) error {
-	v := dst.Value
-	for v.Kind() == reflect.Ptr {
-		v = v.Elem()
+	return dst.AssignRaw(reflect.ValueOf(val).Convert(dst.Type))
+}
+
+func (dst dstValue) AssignRaw(val reflect.Value) error {
+	var recovered error
+	err := func() error {
+		defer func() {
+			if r := recover(); r != nil {
+				recovered = fmt.Errorf("%v", r)
+			}
+		}()
+
+		if !dst.Value.CanSet() {
+			return fmt.Errorf("cannot assign to %s", dst.Type.String())
+		}
+
+		dst.Value.Set(val)
+		return nil
+	}()
+
+	if recovered != nil {
+		return recovered
 	}
-	v.Set(reflect.ValueOf(val))
-	return nil
+	return err
 }
 
 type unmarshalHandler func(src interface{}, dst dstValue) (handled bool, err error)
@@ -49,9 +68,16 @@ func jsonUnmarshal(data []byte, dst interface{}, f unmarshalHandler) error {
 }
 
 func jsonUnmarshalValue(src interface{}, dst dstValue, f unmarshalHandler) error {
-	switch dst.Type.Kind() {
+	switch dst.Kind() {
 	case reflect.Ptr:
-		return jsonUnmarshalValue(src, dst.elem(), f)
+		if src == nil {
+			return dst.AssignRaw(reflect.Zero(dst.Type))
+		}
+
+		if dst.Value.IsNil() {
+			dst.AssignRaw(reflect.New(dst.Type.Elem()))
+		}
+		return jsonUnmarshalValue(src, dst.Elem(), f)
 
 	case reflect.Map:
 		return fmt.Errorf("maps not yet supported")
@@ -59,9 +85,10 @@ func jsonUnmarshalValue(src interface{}, dst dstValue, f unmarshalHandler) error
 		return jsonUnmarshalStruct(src, dst, f)
 
 	case reflect.Array:
-		fallthrough
+		return jsonUnmarshalArray(src, dst, f)
+
 	case reflect.Slice:
-		return fmt.Errorf("arrays and slices not yet supported")
+		return jsonUnmarshalSlice(src, dst, f)
 
 	case reflect.Int:
 		fallthrough
@@ -88,14 +115,10 @@ func jsonUnmarshalValue(src interface{}, dst dstValue, f unmarshalHandler) error
 	case reflect.Uint64:
 		fallthrough
 	case reflect.String:
-		if dst.Value.CanSet() {
-			dst.Value.Set(reflect.ValueOf(src))
-			return nil
-		}
-		return fmt.Errorf("cannot assign to %s", dst.Type.Name())
+		return dst.Assign(src)
 
 	default:
-		return fmt.Errorf("data type %s not yet supported", dst.Type.Kind())
+		return fmt.Errorf("data type %s not yet supported", dst.Kind())
 	}
 }
 
@@ -140,6 +163,40 @@ func jsonUnmarshalStruct(src interface{}, dst dstValue, f unmarshalHandler) erro
 			if err := jsonUnmarshalValue(srcValue, dstField, f); err != nil {
 				return err
 			}
+		}
+	}
+
+	return nil
+}
+
+func jsonUnmarshalArray(src interface{}, dst dstValue, f unmarshalHandler) error {
+	srcArray := reflect.ValueOf(src)
+
+	len := srcArray.Len()
+	if len > dst.Value.Len() {
+		len = dst.Value.Len()
+	}
+
+	for i := 0; i < len; i++ {
+		if err := jsonUnmarshalValue(srcArray.Index(i).Interface(), dst.Index(i), f); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func jsonUnmarshalSlice(src interface{}, dst dstValue, f unmarshalHandler) error {
+	srcSlice := reflect.ValueOf(src)
+	len := srcSlice.Len()
+
+	if err := dst.AssignRaw(reflect.MakeSlice(dst.Type, len, len)); err != nil {
+		return err
+	}
+
+	for i := 0; i < len; i++ {
+		if err := jsonUnmarshalValue(srcSlice.Index(i).Interface(), dst.Index(i), f); err != nil {
+			return err
 		}
 	}
 

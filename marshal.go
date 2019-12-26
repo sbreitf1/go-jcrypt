@@ -13,24 +13,29 @@ type srcValue struct {
 	StructField *reflect.StructField
 }
 
-func (src srcValue) elem() srcValue {
+func (src srcValue) Elem() srcValue {
 	return srcValue{src.Type.Elem(), src.Value.Elem(), src.StructField}
 }
 
 func (src srcValue) Kind() reflect.Kind {
-	t := src.Type
-	for t.Kind() == reflect.Ptr {
-		t = t.Elem()
-	}
-	return t.Kind()
+	return src.Type.Kind()
+}
+
+func (src srcValue) IsNil() bool {
+	return src.Value.IsNil()
+}
+
+func (src srcValue) Len() int {
+	return src.Value.Len()
+}
+
+func (src srcValue) Index(i int) srcValue {
+	v := src.Value.Index(i)
+	return srcValue{v.Type(), v, nil}
 }
 
 func (src srcValue) Interface() interface{} {
-	v := src.Value
-	for v.Kind() == reflect.Ptr {
-		v = v.Elem()
-	}
-	return v.Interface()
+	return src.Value.Interface()
 }
 
 type marshalHandler func(src srcValue) (result interface{}, handled bool, err error)
@@ -49,7 +54,10 @@ func jsonMarshal(src interface{}, f marshalHandler) ([]byte, error) {
 func jsonMarshalValue(src srcValue, f marshalHandler) (interface{}, error) {
 	switch src.Type.Kind() {
 	case reflect.Ptr:
-		return jsonMarshalValue(src.elem(), f)
+		if src.IsNil() {
+			return nil, nil
+		}
+		return jsonMarshalValue(src.Elem(), f)
 
 	case reflect.Map:
 		return nil, fmt.Errorf("maps not yet supported")
@@ -59,7 +67,7 @@ func jsonMarshalValue(src srcValue, f marshalHandler) (interface{}, error) {
 	case reflect.Array:
 		fallthrough
 	case reflect.Slice:
-		return nil, fmt.Errorf("arrays and slices not yet supported")
+		return jsonMarshalArray(src, f)
 
 	case reflect.Int:
 		fallthrough
@@ -133,5 +141,18 @@ func jsonMarshalStruct(src srcValue, f marshalHandler) (interface{}, error) {
 		result[fieldName] = value
 	}
 
+	return result, nil
+}
+
+func jsonMarshalArray(src srcValue, f marshalHandler) (interface{}, error) {
+	len := src.Len()
+	result := make([]interface{}, len)
+	for i := 0; i < len; i++ {
+		data, err := jsonMarshalValue(src.Index(i), f)
+		if err != nil {
+			return nil, err
+		}
+		result[i] = data
+	}
 	return result, nil
 }

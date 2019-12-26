@@ -69,9 +69,7 @@ func main() {
 
 ## Missing Features
 
-- Unmarshal other datatypes than string
-- Encrypt arbitrary values (only strings can be encrypted at the moment)
-- Intensive tests
+- marshal / unmarshal maps
 - Respect json-annotation options like `omitempty` and `string`
 - Document GetKey-Callback handler for interactive password input
 - Other encryption standards
